@@ -1,7 +1,7 @@
-"""Minimal example of how to send event triggers in PsychoPy with
-LabStreamingLayer.
-In this example, the words "hello" and "world" alternate on the terminal, and
-an event marker is sent with the appearance of each word.
+"""This file allows you to send LSL markers through keyboard input.
+It uses the `pynput` library to listen for keyboard events and the `pylsl` library to send markers.
+Make sure to install these libraries if you haven't already:   
+pip install pynput pylsl
 """
 
 from pylsl import StreamInfo, StreamOutlet
@@ -10,19 +10,10 @@ from pynput import keyboard
 
 def main():
     """Send event markers based on keyboard input."""
-    # Set up LabStreamingLayer stream.
+    # set up LSL steam
     info = StreamInfo(name='DataSyncMarker', type='Tags', channel_count=1,
                       channel_format='string', source_id='12345')
     outlet = StreamOutlet(info)  # Broadcast the stream.
-
-    # Keyboard Controls
-    print("Keyboard Controls:")
-    print("x - test marker")
-    print("s - class started")
-    print("a - new activity")
-    print("e - class ended")
-    print("ESC - quit")
-
 
     # This is not necessary but can be useful to keep track of markers and the
     # events they correspond to.
@@ -31,10 +22,20 @@ def main():
         's': ["ClassStarted"],
         'a': ["NewActivity"],
         'e': ["ClassEnded"],
+        'b': ["BreakStartedEnded"]
     }
     
-    print("Stream setup complete. Ready to send markers!")
+    print("Set up complete.")
     print("\nPress keys to send markers (ESC to exit):")
+
+     # Keyboard Controls
+    print("\nKeyboard Controls:")
+    print("x - test marker")
+    print("s - class started")
+    print("a - new activity")
+    print("b - break started/ended")
+    print("e - class ended")
+    print("ESC - quit")
     
     def on_key_press(key):
         try:
@@ -43,7 +44,7 @@ def main():
                 key_pressed = key.char.lower()
                 
                 if key_pressed == 'a':
-                    # Special handling for activity - prompt for name
+                    # activity - prompt for name
                     print(f"\nKey '{key.char}' pressed - Enter activity name: ", end='', flush=True)
                     activity_name = input()
                     if activity_name.strip():
@@ -53,12 +54,12 @@ def main():
                     else:
                         print("No activity name entered, marker not sent.")
                 else:
-                    # Normal marker handling for other keys
+                    # regular markers for other keys
                     marker = markers[key_pressed]
                     outlet.push_sample(marker)
                     print(f"Sent marker: {marker[0]} (key: {key.char})")
         except AttributeError:
-            # Handle special keys like ESC
+            # ESC key
             if key == keyboard.Key.esc:
                 print("\nExiting...")
                 return False
@@ -66,12 +67,11 @@ def main():
             print(f"Error processing key: {e}")
     
     def on_key_release(key):
-        # Exit on ESC key release as well
+        # exit on ESC key release as well
         if key == keyboard.Key.esc:
             return False
     
-    # Set up keyboard listener
-    print("Keyboard listener active...")
+    # keyboard listener setup
     try:
         with keyboard.Listener(on_press=on_key_press, on_release=on_key_release) as listener:
             listener.join()
