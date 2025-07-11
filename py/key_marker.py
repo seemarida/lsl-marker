@@ -1,4 +1,4 @@
-#new
+#new!
 """This file allows you to send LSL markers through keyboard input.
 It uses the pynput library to listen for keyboard events and the pylsl library to send markers.
 INSTALL THESE LIBRARIES:   
@@ -17,7 +17,7 @@ def main():
                       channel_format='string', source_id='12345')
     outlet = StreamOutlet(info)  # start broadcast!
 
-    getting_input = False  # NEW - flag to control when to ignore keys
+    getting_input = False  # flag to control when to ignore keys
 
     # single letter key markers
     markers = {
@@ -36,7 +36,6 @@ def main():
     two_key_markers = {
         'si': ["Singing"],
         'gm': ["GeneralMusic"],
-        #'ar': ["Art"],
         'ss': ["SimonSays"],
         'hs': ["HeadShouldersKneesToes"],
         'br': ["Breathing"],
@@ -47,10 +46,12 @@ def main():
         'im': ["InterestingMoment"]
     }
 
-    # to keep track of waht keys im typing for the two letter combos
+    # to keep track of what keys im typing for the two letter combos
     key_sequence = ""
     last_key_time = 0
     sequence_timeout = 1.0 # if you wait longer than X seconds, it forgets the first key
+    pending_single_key = None  # NEW: track pending single key
+    single_key_timer = None    # NEW: timer for single key delay
 
     print("Set up is complete!")
     print("\nPress keys to send markers (ESC to quit).")
@@ -69,7 +70,6 @@ def main():
     print("\nTwo-Key Combinations:")
     print("si - singing")
     print("gm - general music")
-    #print("ar - art")
     print("ss - simon says")
     print("hs - head shoulders knees toes")
     print("br - breathing")
@@ -81,8 +81,12 @@ def main():
     print("ESC - quit")
 
     def reset_sequence():
-        nonlocal key_sequence
+        nonlocal key_sequence, pending_single_key, single_key_timer
         key_sequence = ""
+        pending_single_key = None
+        if single_key_timer:
+            single_key_timer.cancel()
+            single_key_timer = None
 
     def get_activity_name():
         # THIS FUNCTION HANDLES INPUT SAFELY
@@ -101,8 +105,28 @@ def main():
         getting_input = False  # TURN ON keyboard listener again
         reset_sequence()  # clear any stray keys that might have accumulated
 
+    def send_pending_single_key():
+        """Send the pending single key marker after delay"""
+        nonlocal pending_single_key
+        if pending_single_key and len(key_sequence) <= 1:
+            key_pressed = pending_single_key
+            if key_pressed == 'a':
+                # SEND MARKER IMMEDIATELY, THEN GET ACTIVITY NAME SAFELY
+                marker = markers[key_pressed]
+                outlet.push_sample(marker)
+                print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+                
+                # USE THREADING TO GET INPUT WITHOUT BLOCKING
+                threading.Thread(target=get_activity_name, daemon=True).start()
+            else:
+                # regular markers for other keys
+                marker = markers[key_pressed]
+                outlet.push_sample(marker)
+                print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+            reset_sequence()
+
     def on_key_press(key):
-        nonlocal key_sequence, last_key_time, getting_input
+        nonlocal key_sequence, last_key_time, getting_input, pending_single_key, single_key_timer
         
         # IGNORE ALL KEYS WHILE TYPING ACTIVITY NAME
         if getting_input:
@@ -118,6 +142,11 @@ def main():
                 # if wait is too long, times out
                 if current_time - last_key_time > sequence_timeout:
                     reset_sequence()
+
+                # Cancel any pending single key timer
+                if single_key_timer:
+                    single_key_timer.cancel()
+                    single_key_timer = None
 
                 # add key to the sequence
                 key_sequence += key_pressed
@@ -140,26 +169,27 @@ def main():
                         key_sequence = key_pressed
                         last_key_time = current_time
 
-                # check for single key markers (but wait a bit to see if it's part of a sequence)
+                # For single key that could be part of a two-key combo
                 if len(key_sequence) == 1 and key_pressed in markers:
-                    # wait a bit to see if another key is coming
-                    sleep(0.2) # small delay to catch quick two-key sequences
-
-                    # check if sequence was extended during the wait
-                    if len(key_sequence) == 1:  # still just one key
+                    # Check if this key could be the start of a two-key combination
+                    could_be_two_key = any(combo.startswith(key_pressed) for combo in two_key_markers.keys())
+                    
+                    if could_be_two_key:
+                        # Wait to see if another key comes
+                        pending_single_key = key_pressed
+                        single_key_timer = threading.Timer(0.3, send_pending_single_key)
+                        single_key_timer.start()
+                    else:
+                        # This key can't be part of a two-key combo, send immediately
                         if key_pressed == 'a':
-                            # SEND MARKER IMMEDIATELY, THEN GET ACTIVITY NAME SAFELY
                             marker = markers[key_pressed]
                             outlet.push_sample(marker)
-                            print(f"Sent single-key marker: {marker[0]} (key: {key.char})")
-                            
-                            # USE THREADING TO GET INPUT WITHOUT BLOCKING
+                            print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
                             threading.Thread(target=get_activity_name, daemon=True).start()
                         else:
-                            # regular markers for other keys
                             marker = markers[key_pressed]
                             outlet.push_sample(marker)
-                            print(f"Sent single-key marker: {marker[0]} (key: {key.char})")
+                            print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
                         reset_sequence()
 
         except AttributeError:
