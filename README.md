@@ -1,6 +1,6 @@
 # lsl-marker
 
-This script allows you to send LSL (Lab Streaming Layer) markers through keyboard input to set event markers for EmotiBit or other devices with LSL-integrated functionality.
+This script allows you to send LSL (Lab Streaming Layer) markers through keyboard input to set event markers for EmotiBits or other devices with LSL-integrated functionality.
 
 ## Setup Instructions
 
