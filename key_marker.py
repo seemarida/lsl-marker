@@ -1,4 +1,3 @@
-#new!
 """This file allows you to send LSL markers through keyboard input.
 It uses the pynput library to listen for keyboard events and the pylsl library to send markers.
 INSTALL THESE LIBRARIES:   
@@ -9,6 +8,7 @@ from pylsl import StreamInfo, StreamOutlet
 from time import sleep, time
 from pynput import keyboard
 import threading
+from collections import deque
 
 def main():
     """Send event markers based on keyboard input."""
@@ -18,6 +18,9 @@ def main():
     outlet = StreamOutlet(info)  # start broadcast!
 
     getting_input = False  # flag to control when to ignore keys
+    
+    # NEW: Track sent markers for undo functionality
+    sent_markers = deque(maxlen=10)  # Keep last 10 markers for undo
 
     # single letter key markers
     markers = {
@@ -32,7 +35,7 @@ def main():
         'e': ["ClassEnded"]
     }
 
-    # two letter combinations - press keys quickly!!!
+    # two letter combinations - press keys quickly
     two_key_markers = {
         'si': ["Singing"],
         'gm': ["GeneralMusic"],
@@ -50,8 +53,8 @@ def main():
     key_sequence = ""
     last_key_time = 0
     sequence_timeout = 1.0 # if you wait longer than X seconds, it forgets the first key
-    pending_single_key = None  # NEW: track pending single key
-    single_key_timer = None    # NEW: timer for single key delay
+    pending_single_key = None  # track pending single key
+    single_key_timer = None    # timer for single key delay
 
     print("Set up is complete!")
     print("\nPress keys to send markers (ESC to quit).")
@@ -67,6 +70,7 @@ def main():
     print("r - repeat after me")
     print("p - get prizes")
     print("e - class ended")
+    print("u - UNDO last marker")  # NEW
     print("\nTwo-Key Combinations:")
     print("si - singing")
     print("gm - general music")
@@ -88,6 +92,26 @@ def main():
             single_key_timer.cancel()
             single_key_timer = None
 
+    def send_marker(marker_data, marker_type="marker"):
+        """Send a marker and track it for undo functionality"""
+        outlet.push_sample(marker_data)
+        sent_markers.append({
+            'marker': marker_data[0],
+            'timestamp': time(),
+            'type': marker_type
+        })
+        print(f"Sent {marker_type}: {marker_data[0]}")
+
+    def undo_last_marker():
+        """Remove the last sent marker by sending an UNDO marker"""
+        if sent_markers:
+            last_marker = sent_markers.pop()
+            undo_marker = [f"UNDO_{last_marker['marker']}"]
+            outlet.push_sample(undo_marker)
+            print(f"UNDID: {last_marker['marker']} (sent UNDO_{last_marker['marker']})")
+        else:
+            print("No markers to undo!")
+
     def get_activity_name():
         # THIS FUNCTION HANDLES INPUT SAFELY
         nonlocal getting_input
@@ -98,8 +122,7 @@ def main():
         if activity_name.strip():
             # send a new marker with the activity name
             marker = [f"NewActivity_{activity_name.strip()}"]
-            outlet.push_sample(marker)
-            print(f"Sent marker: {marker[0]}")
+            send_marker(marker, "activity marker")
         else:
             print("No activity name entered.")
         getting_input = False  # TURN ON keyboard listener again
@@ -113,16 +136,14 @@ def main():
             if key_pressed == 'a':
                 # SEND MARKER IMMEDIATELY, THEN GET ACTIVITY NAME SAFELY
                 marker = markers[key_pressed]
-                outlet.push_sample(marker)
-                print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+                send_marker(marker, "single-key marker")
                 
                 # USE THREADING TO GET INPUT WITHOUT BLOCKING
                 threading.Thread(target=get_activity_name, daemon=True).start()
             else:
                 # regular markers for other keys
                 marker = markers[key_pressed]
-                outlet.push_sample(marker)
-                print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+                send_marker(marker, "single-key marker")
             reset_sequence()
 
     def on_key_press(key):
@@ -138,6 +159,12 @@ def main():
             # ignore numbers, symbols, etc
             if hasattr(key, 'char') and key.char and key.char.isalpha():
                 key_pressed = key.char.lower()
+
+                # NEW: Handle undo key
+                if key_pressed == 'u':
+                    undo_last_marker()
+                    reset_sequence()
+                    return
 
                 # if wait is too long, times out
                 if current_time - last_key_time > sequence_timeout:
@@ -158,8 +185,7 @@ def main():
                     last_two = key_sequence[-2:]
                     if last_two in two_key_markers:
                         marker = two_key_markers[last_two]
-                        outlet.push_sample(marker)
-                        print(f"Sent two-key marker: {marker[0]} (keys: {last_two})")
+                        send_marker(marker, "two-key marker")
                         reset_sequence()
                         return
 
@@ -183,13 +209,11 @@ def main():
                         # This key can't be part of a two-key combo, send immediately
                         if key_pressed == 'a':
                             marker = markers[key_pressed]
-                            outlet.push_sample(marker)
-                            print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+                            send_marker(marker, "single-key marker")
                             threading.Thread(target=get_activity_name, daemon=True).start()
                         else:
                             marker = markers[key_pressed]
-                            outlet.push_sample(marker)
-                            print(f"Sent single-key marker: {marker[0]} (key: {key_pressed})")
+                            send_marker(marker, "single-key marker")
                         reset_sequence()
 
         except AttributeError:
